@@ -10,13 +10,15 @@ ModelParams:
   bg_aug_ratio: 0.66
 
 GuidanceParams:
-  model_key: 'stabilityai/stable-diffusion-2-1-base'
+  # model_key: 'stabilityai/stable-diffusion-2-1-base'
+  model_key: '/home/hongyu/LucidDreamer/models/stable-diffusion-2-1-base'
   text: 'A <Taylor_Swift> wearing sunglasses.'
   LoRA_path: "./custom_example/lora/Taylor_Swift/step_inv_1000.safetensors"  
   negative: 'unrealistic, blurry, low quality, out of focus, ugly, low contrast, dull, dark, low-resolution, oversaturation.'
   inverse_text: ''
   perpneg: true
-  C_batch_size: 4
+  # C_batch_size: 4
+  C_batch_size: 1
   t_range: [0.02, 0.5]
   max_t_range: 0.98
   lambda_guidance: 0.1

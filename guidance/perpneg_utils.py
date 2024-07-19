@@ -3,7 +3,7 @@ import torch
 # Please refer to the https://perp-neg.github.io/ for details about the paper and algorithm
 def get_perpendicular_component(x, y):
     assert x.shape == y.shape
-    return x - ((torch.mul(x, y).sum())/max(torch.norm(y)**2, 1e-6)) * y
+    return x - ((torch.mul(x, y).sum())/max(torch.norm(y)**2, 1e-6)) * y  # Perp-Neg 中的 Eq.(8)
 
 
 def batch_get_perpendicular_component(x, y):
@@ -20,6 +20,7 @@ def weighted_perpendicular_aggregator(delta_noise_preds, weights, batch_size):
      - weights: an array with the weights for combining the noise predictions
      - delta_noise_preds: [B x K, 4, 64, 64], K = max_prompts_per_dir
     """
+    # delta_noise_preds: 有 text 预测的噪声与 uncond 预测噪声之差
     delta_noise_preds = delta_noise_preds.split(batch_size, dim=0) # K x [B, 4, 64, 64]
     weights = weights.split(batch_size, dim=0) # K x [B]
     # print(f"{weights[0].shape = } {weights = }")

@@ -56,7 +56,7 @@ def seed_everything(seed):
 class StableDiffusion(nn.Module):
     def __init__(self, device, fp16, vram_O, t_range=[0.02, 0.98], max_t_range=0.98, num_train_timesteps=None, 
                  ddim_inv=False, use_control_net=False, textual_inversion_path = None, 
-                 LoRA_path = None, guidance_opt=None):
+                 LoRA_path = None, guidance_opt=None):  # 全部源于 GuidanceParams
         super().__init__()
 
         self.device = device
@@ -91,6 +91,7 @@ class StableDiffusion(nn.Module):
             pipe.enable_model_cpu_offload()
 
         pipe.enable_xformers_memory_efficient_attention()
+        # pipe.enable_attention_slicing()  # for low GPU RAM
 
         pipe = pipe.to(self.device)
         if textual_inversion_path is not None:
@@ -116,7 +117,9 @@ class StableDiffusion(nn.Module):
         self.text_encoder = pipe.text_encoder
         self.unet = pipe.unet
         
-        self.num_train_timesteps = num_train_timesteps if num_train_timesteps is not None else self.scheduler.config.num_train_timesteps        
+        # 使用 DDIMScheduler 缺省 num_train_timesteps
+        self.num_train_timesteps = num_train_timesteps if num_train_timesteps is not None \
+            else self.scheduler.config.num_train_timesteps
         self.scheduler.set_timesteps(self.num_train_timesteps, device=device)
 
         self.timesteps = torch.flip(self.scheduler.timesteps, dims=(0, ))
@@ -142,8 +145,7 @@ class StableDiffusion(nn.Module):
 
     def augmentation(self, *tensors):
         augs = T.Compose([
-                        T.RandomHorizontalFlip(p=0.5),
-                    ])
+                        T.RandomHorizontalFlip(p=0.5), ])
         
         channels = [ten.shape[1] for ten in tensors]
         tensors_concat = torch.concat(tensors, dim=1)
@@ -162,56 +164,68 @@ class StableDiffusion(nn.Module):
                            delta_t=1, inv_steps=1,
                            is_noisy_latent=False,
                            eta=0.0):
+        # delta_t 和 inv_steps 共同决定从 ind_prev_t 到 ind_t 的实际步数
+        # delta_t 越小，需要的步数越多（在 ind_prev_t + inv_steps * delta_t < ind_t 的情况下）
 
-        text_embeddings = text_embeddings.to(self.precision_t)
+        text_embeddings = text_embeddings.to(self.precision_t)  # [4, 77, 1024]
         if cfg <= 1.0:
-            uncond_text_embedding = text_embeddings.reshape(2, -1, text_embeddings.shape[-2], text_embeddings.shape[-1])[1]
+            uncond_text_embedding = text_embeddings.reshape(
+                2, -1, text_embeddings.shape[-2], text_embeddings.shape[-1])[1]  # [2, 77, 1024]
 
         unet = self.unet
 
         if is_noisy_latent:
             prev_noisy_lat = latents
         else:
+            # prev_noisy_lat: 以 latents 为 x_0，由 prev_t 一步加噪到 x_{prev_t}
+            # 对应 ISM 算法中 step x_s -> x_t
             prev_noisy_lat = self.scheduler.add_noise(latents, noise, self.timesteps[ind_prev_t])
 
-        cur_ind_t = ind_prev_t
-        cur_noisy_lat = prev_noisy_lat
+        cur_ind_t = ind_prev_t  # Step 2 中对应 s
+        cur_noisy_lat = prev_noisy_lat  # [2, 4, 64, 64] Step 2 中对应 x_s
 
         pred_scores = []
 
         for i in range(inv_steps):
             # pred noise
+            # cur_noisy_lat_ 等价于 cur_noisy_lat.to(self.precision_t)
             cur_noisy_lat_ = self.scheduler.scale_model_input(cur_noisy_lat, self.timesteps[cur_ind_t]).to(self.precision_t)
             
             if cfg > 1.0:
                 latent_model_input = torch.cat([cur_noisy_lat_, cur_noisy_lat_])
-                timestep_model_input = self.timesteps[cur_ind_t].reshape(1, 1).repeat(latent_model_input.shape[0], 1).reshape(-1)
+                timestep_model_input = self.timesteps[cur_ind_t].reshape(1, 1).repeat(
+                    latent_model_input.shape[0], 1).reshape(-1)
                 unet_output = unet(latent_model_input, timestep_model_input, 
-                                encoder_hidden_states=text_embeddings).sample
+                                   encoder_hidden_states=text_embeddings).sample
                 
                 uncond, cond = torch.chunk(unet_output, chunks=2)
                 
                 unet_output = cond + cfg * (uncond - cond) # reverse cfg to enhance the distillation
             else:
-                timestep_model_input = self.timesteps[cur_ind_t].reshape(1, 1).repeat(cur_noisy_lat_.shape[0], 1).reshape(-1)
-                unet_output = unet(cur_noisy_lat_, timestep_model_input, 
-                                    encoder_hidden_states=uncond_text_embedding).sample
+                timestep_model_input = self.timesteps[cur_ind_t].reshape(1, 1).repeat(
+                    cur_noisy_lat_.shape[0], 1).reshape(-1)                
+                unet_output = unet(cur_noisy_lat_, timestep_model_input,  # 输入 x_{cur_t} 后预测的噪声
+                                    encoder_hidden_states=uncond_text_embedding).sample  # [2, 4, 64, 64]
 
-            pred_scores.append((cur_ind_t, unet_output))
+            pred_scores.append((cur_ind_t, unet_output))  # Step 2 对应 s
 
             next_ind_t = min(cur_ind_t + delta_t, ind_t)
             cur_t, next_t = self.timesteps[cur_ind_t], self.timesteps[next_ind_t]
-            delta_t_ = next_t-cur_t if isinstance(self.scheduler, DDIMScheduler) else next_ind_t-cur_ind_t
+            delta_t_ = next_t - cur_t if isinstance(self.scheduler, DDIMScheduler) \
+                else next_ind_t-cur_ind_t
 
-            cur_noisy_lat = self.sche_func(self.scheduler, unet_output, cur_t, cur_noisy_lat, -delta_t_, eta).prev_sample
+            cur_noisy_lat = self.sche_func(self.scheduler, unet_output, cur_t, cur_noisy_lat, -delta_t_, eta).prev_sample  # prev_sample: 预测的 x_{next_t}
             cur_ind_t = next_ind_t
 
             del unet_output
             torch.cuda.empty_cache()
 
-            if cur_ind_t == ind_t:
+            if cur_ind_t == ind_t:  # 对 t ddim_step 之后就 break，因此 pred_scores 最大只添加到 s
                 break
 
+        # 记 m = timesteps[min(ind_prev_t + inv_steps * delta_t, ind_t)]
+        # cur_noisy_lat: 预测的 x_m
+        # pred_scores[::-1]: 按 t 递减，每个二元组是 (t, 对 x_t 预测的噪声)
         return prev_noisy_lat, cur_noisy_lat, pred_scores[::-1]
 
 
@@ -228,30 +242,38 @@ class StableDiffusion(nn.Module):
 
 
         # flip aug
+        # rgb: [2, 3, 512, 512] depth: [2, 1, 512, 512]
         pred_rgb, pred_depth, pred_alpha = self.augmentation(pred_rgb, pred_depth, pred_alpha)
 
         B = pred_rgb.shape[0]
         K = text_embeddings.shape[0] - 1
 
-        if as_latent:      
+        if as_latent:  # [2, 4, 64, 64]
             latents,_ = self.encode_imgs(pred_depth.repeat(1,3,1,1).to(self.precision_t))
         else:
             latents,_ = self.encode_imgs(pred_rgb.to(self.precision_t))
         # timestep ~ U(0.02, 0.98) to avoid very high/low noise level
         
         weights = weights.reshape(-1)
-        noise = torch.randn((latents.shape[0], 4, resolution[0] // 8, resolution[1] // 8, ), dtype=latents.dtype, device=latents.device, generator=self.noise_gen) + 0.1 * torch.randn((1, 4, 1, 1), device=latents.device).repeat(latents.shape[0], 1, 1, 1)
+        noise = torch.randn((latents.shape[0], 4, resolution[0] // 8, resolution[1] // 8, ),
+                             dtype=latents.dtype, device=latents.device, generator=self.noise_gen) \
+                            + 0.1 * torch.randn((1, 4, 1, 1), device=latents.device).repeat(latents.shape[0], 1, 1, 1)
 
-        inverse_text_embeddings = embedding_inverse.unsqueeze(1).repeat(1, B, 1, 1).reshape(-1, embedding_inverse.shape[-2], embedding_inverse.shape[-1])
+        inverse_text_embeddings = embedding_inverse.unsqueeze(1).repeat(1, B, 1, 1).reshape(
+            -1, embedding_inverse.shape[-2], embedding_inverse.shape[-1])
 
-        text_embeddings = text_embeddings.reshape(-1, text_embeddings.shape[-2], text_embeddings.shape[-1]) # make it k+1, c * t, ...
+        text_embeddings = text_embeddings.reshape(
+            -1, text_embeddings.shape[-2], text_embeddings.shape[-1]) # make it k+1, c * t, ...
 
         if guidance_opt.annealing_intervals:
-            current_delta_t =  int(guidance_opt.delta_t + np.ceil((warm_up_rate)*(guidance_opt.delta_t_start - guidance_opt.delta_t)))
+            current_delta_t =  int(guidance_opt.delta_t + np.ceil((
+                warm_up_rate) * (guidance_opt.delta_t_start - guidance_opt.delta_t)))
         else:
             current_delta_t =  guidance_opt.delta_t
 
-        ind_t = torch.randint(self.min_step, self.max_step + int(self.warmup_step*warm_up_rate), (1, ), dtype=torch.long, generator=self.noise_gen, device=self.device)[0]
+        ind_t = torch.randint(self.min_step, self.max_step + 
+                              int(self.warmup_step * warm_up_rate), (1, ), 
+                              dtype=torch.long, generator=self.noise_gen, device=self.device)[0]
         ind_prev_t = max(ind_t - current_delta_t, torch.ones_like(ind_t) * 0)
 
         t = self.timesteps[ind_t]
@@ -265,25 +287,36 @@ class StableDiffusion(nn.Module):
                 target = noise
             else:
                 # Step 1: sample x_s with larger steps
-                xs_delta_t = guidance_opt.xs_delta_t if guidance_opt.xs_delta_t is not None else current_delta_t
-                xs_inv_steps = guidance_opt.xs_inv_steps if guidance_opt.xs_inv_steps is not None else int(np.ceil(ind_prev_t / xs_delta_t))
+                xs_delta_t = guidance_opt.xs_delta_t if guidance_opt.xs_delta_t is not None \
+                    else current_delta_t
+                xs_inv_steps = guidance_opt.xs_inv_steps if guidance_opt.xs_inv_steps is not None \
+                    else int(np.ceil(ind_prev_t / xs_delta_t))
                 starting_ind = max(ind_prev_t - xs_delta_t * xs_inv_steps, torch.ones_like(ind_t) * 0)
 
-                _, prev_latents_noisy, pred_scores_xs = self.add_noise_with_cfg(latents, noise, ind_prev_t, starting_ind, inverse_text_embeddings, 
-                                                                                guidance_opt.denoise_guidance_scale, xs_delta_t, xs_inv_steps, eta=guidance_opt.xs_eta)
+                # prev_latents_noisy: 预测的 x_{prev_t}
+                # pred_scores_xs: 对从 prev_t - xs_delta_t 递减到 starting_t 的各个 t 预测的噪声
+                # 从 starting_t 以 opts.xs_delta_t 为步长加噪到 prev_t（对应 x_s）
+                _, prev_latents_noisy, pred_scores_xs = self.add_noise_with_cfg(
+                    latents, noise, ind_prev_t, starting_ind, inverse_text_embeddings, guidance_opt.denoise_guidance_scale, xs_delta_t, xs_inv_steps, eta=guidance_opt.xs_eta)
+
                 # Step 2: sample x_t
-                _, latents_noisy, pred_scores_xt = self.add_noise_with_cfg(prev_latents_noisy, noise, ind_t, ind_prev_t, inverse_text_embeddings, 
-                                                                           guidance_opt.denoise_guidance_scale, current_delta_t, 1, is_noisy_latent=True)        
+                # latents_noisy: 预测的 x_t [2, 4, 64, 64]
+                # pred_scores_xt: 对 s 预测的噪声（因为 s 到 t 只有一步）
+                # 从 prev_t（即 x_s）以 opts.delta_t 为步长一步加噪到 t
+                _, latents_noisy, pred_scores_xt = self.add_noise_with_cfg(
+                    prev_latents_noisy, noise, ind_t, ind_prev_t, inverse_text_embeddings, guidance_opt.denoise_guidance_scale, current_delta_t, 1, is_noisy_latent=True)        
 
                 pred_scores = pred_scores_xt + pred_scores_xs
-                target = pred_scores[0][1]
+                target = pred_scores[0][1]  # 即 ISM Loss 中的 episilon(x_s, s, uncond)
 
 
         with torch.no_grad():
-            latent_model_input = latents_noisy[None, :, ...].repeat(1 + K, 1, 1, 1, 1).reshape(-1, 4, resolution[0] // 8, resolution[1] // 8, )
+            # latents_noisy[None, :, ...] 等价于 latents_noisy.unsqueeze(0)
+            latent_model_input = latents_noisy[None, :, ...].repeat(1 + K, 1, 1, 1, 1).reshape(
+                -1, 4, resolution[0] // 8, resolution[1] // 8, )
             tt = t.reshape(1, 1).repeat(latent_model_input.shape[0], 1).reshape(-1)
 
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, tt[0])
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, tt[0])  # [8, 4, 64, 64]
             if use_control_net:
                 pred_depth_input = pred_depth_input[None, :, ...].repeat(1 + K, 1, 3, 1, 1).reshape(-1, 3, 512, 512).half()
                 down_block_res_samples, mid_block_res_sample = self.controlnet_depth(
@@ -297,17 +330,18 @@ class StableDiffusion(nn.Module):
                                     down_block_additional_residuals=down_block_res_samples,
                                     mid_block_additional_residual=mid_block_res_sample).sample
             else:
-                unet_output = self.unet(latent_model_input.to(self.precision_t), tt.to(self.precision_t), encoder_hidden_states=text_embeddings.to(self.precision_t)).sample
+                unet_output = self.unet(latent_model_input.to(self.precision_t), tt.to(self.precision_t),
+                                         encoder_hidden_states=text_embeddings.to(self.precision_t)).sample
 
-            unet_output = unet_output.reshape(1 + K, -1, 4, resolution[0] // 8, resolution[1] // 8, )
-            noise_pred_uncond, noise_pred_text = unet_output[:1].reshape(-1, 4, resolution[0] // 8, resolution[1] // 8, ), unet_output[1:].reshape(-1, 4, resolution[0] // 8, resolution[1] // 8, )
+            unet_output = unet_output.reshape(1 + K, -1, 4, resolution[0] // 8, resolution[1] // 8, )  # [4, 2, 4, 64, 64] 对 x_t 预测的噪声
+            noise_pred_uncond, noise_pred_text = unet_output[:1].reshape(
+                -1, 4, resolution[0] // 8, resolution[1] // 8, ), unet_output[1:].reshape(-1, 4, resolution[0] // 8, resolution[1] // 8, )  # uncond: [2, 4, 64, 64] text: [6, 4, 64, 64]
+            
             delta_noise_preds = noise_pred_text - noise_pred_uncond.repeat(K, 1, 1, 1)
-            delta_DSD = weighted_perpendicular_aggregator(delta_noise_preds,\
-                                                            weights,\
-                                                            B)     
+            delta_DSD = weighted_perpendicular_aggregator(delta_noise_preds, weights, B)     
 
-        pred_noise = noise_pred_uncond + guidance_opt.guidance_scale * delta_DSD
-        w = lambda alphas: (((1 - alphas) / alphas) ** 0.5)
+        pred_noise = noise_pred_uncond + guidance_opt.guidance_scale * delta_DSD  # ISM Eq.(18)
+        w = lambda alphas: (((1 - alphas) / alphas) ** 0.5)  # ISM 中的 gamma(t)
 
         grad = w(self.alphas[t]) * (pred_noise - target)
         
@@ -330,15 +364,14 @@ class StableDiffusion(nn.Module):
                 latents_rgb = F.interpolate(lat2rgb(latents), (resolution[0], resolution[1]), mode='bilinear', align_corners=False)
                 latents_sp_rgb = F.interpolate(lat2rgb(pred_x0_latent_sp), (resolution[0], resolution[1]), mode='bilinear', align_corners=False)
 
-                viz_images = torch.cat([pred_rgb, 
+                viz_images = torch.cat([pred_rgb,  # [1, 3, 512, 512] 
                                         pred_depth.repeat(1, 3, 1, 1), 
                                         pred_alpha.repeat(1, 3, 1, 1), 
                                         rgb2sat(pred_rgb, pred_alpha).repeat(1, 3, 1, 1),
                                         latents_rgb, latents_sp_rgb, 
                                         norm_grad,
                                         pred_x0_sp, pred_x0_pos],dim=0) 
-                save_image(viz_images, save_path_iter)
-
+                save_image(viz_images, save_path_iter)  # [9, 3, 512, 512]
 
         return loss
 
@@ -377,6 +410,7 @@ class StableDiffusion(nn.Module):
         else:
             current_delta_t =  guidance_opt.delta_t
 
+        # 在 num_train_timesteps * opts.t_range 中随机选择 t
         ind_t = torch.randint(self.min_step, self.max_step + int(self.warmup_step*warm_up_rate), (1, ), dtype=torch.long, generator=self.noise_gen, device=self.device)[0]
         ind_prev_t = max(ind_t - current_delta_t, torch.ones_like(ind_t) * 0)
 
@@ -461,6 +495,7 @@ class StableDiffusion(nn.Module):
                                         rgb2sat(pred_rgb, pred_alpha).repeat(1, 3, 1, 1),
                                         latents_rgb, latents_sp_rgb, norm_grad,
                                         pred_x0_sp, pred_x0_pos],dim=0) 
+                # for img in [pred_rgb, pred_depth.repeat]
                 save_image(viz_images, save_path_iter)
 
         return loss

@@ -45,7 +45,7 @@ def adjust_text_embeddings(embeddings, azimuth, guidance_opt):
     #for b in range(azimuth):
     text_z_, weights_ = get_pos_neg_text_embeddings(embeddings, azimuth, guidance_opt)
     K = max(K, weights_.shape[0])
-    text_z_list.append(text_z_)
+    text_z_list.append(text_z_)  # [3, 77, 1024]
     weights_list.append(weights_)
 
     # Interleave text_embeddings from different dirs to form a batch
@@ -53,15 +53,16 @@ def adjust_text_embeddings(embeddings, azimuth, guidance_opt):
     for i in range(K):
         for text_z in text_z_list:
             # if uneven length, pad with the first embedding
-            text_embeddings.append(text_z[i] if i < len(text_z) else text_z[0])
-    text_embeddings = torch.stack(text_embeddings, dim=0) # [B * K, 77, 768]
+            # 将 text_z.shape 变为 [K, 77, 1024]
+            text_embeddings.append(text_z[i] if i < len(text_z) else text_z[0])  # [77, 1024]
+    text_embeddings = torch.stack(text_embeddings, dim=0) # [K, 77, 1024]
 
     # Interleave weights from different dirs to form a batch
     weights = []
     for i in range(K):
         for weights_ in weights_list:
             weights.append(weights_[i] if i < len(weights_) else torch.zeros_like(weights_[0]))
-    weights = torch.stack(weights, dim=0) # [B * K]
+    weights = torch.stack(weights, dim=0) # [K]
     return text_embeddings, weights
 
 def get_pos_neg_text_embeddings(embeddings, azimuth_val, opt):
@@ -114,13 +115,13 @@ def prepare_embeddings(guidance_opt, guidance):
 
     for d in ['front', 'side', 'back']:
         embeddings[d] = guidance.get_text_embeds([f"{guidance_opt.text}, {d} view"])
-    embeddings['inverse_text'] = guidance.get_text_embeds(guidance_opt.inverse_text)
+    embeddings['inverse_text'] = guidance.get_text_embeds(guidance_opt.inverse_text)  # [1, 77, 1024]
     return embeddings
 
 def guidance_setup(guidance_opt):
     if guidance_opt.guidance=="SD":
         from guidance.sd_utils import StableDiffusion
-        guidance = StableDiffusion(guidance_opt.g_device, guidance_opt.fp16, guidance_opt.vram_O, 
+        guidance = StableDiffusion(guidance_opt.g_device, guidance_opt.fp16, guidance_opt.vram_O,  # TODO track guidance_opt
                                    guidance_opt.t_range, guidance_opt.max_t_range, 
                                    num_train_timesteps=guidance_opt.num_train_timesteps, 
                                    ddim_inv=guidance_opt.ddim_inv,
@@ -151,7 +152,6 @@ def training(dataset, opt, pipe, gcams, guidance_opt, testing_iterations, saving
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    #
     save_folder = os.path.join(dataset._model_path,"train_process/")
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)  # makedirs
@@ -235,7 +235,7 @@ def training(dataset, opt, pipe, gcams, guidance_opt, testing_iterations, saving
         alphas = []
         scales = []
 
-        text_z_inverse =torch.cat([embeddings['uncond'],embeddings['inverse_text']], dim=0)
+        text_z_inverse = torch.cat([embeddings['uncond'],embeddings['inverse_text']], dim=0)
 
         for i in range(C_batch_size):
             try:
@@ -271,8 +271,8 @@ def training(dataset, opt, pipe, gcams, guidance_opt, testing_iterations, saving
                     end_z = embeddings['back']
                 text_z.append(r * start_z + (1 - r) * end_z)
 
-            text_z = torch.cat(text_z, dim=0)
-            text_z_.append(text_z)
+            text_z = torch.cat(text_z, dim=0)  # [K + 1 (uncond), 77, 1024]
+            text_z_.append(text_z)  # 用于将多个 text_z 按 dim=1 cat
 
             # Render
             if (iteration - 1) == debug_from:
@@ -376,7 +376,7 @@ def training(dataset, opt, pipe, gcams, guidance_opt, testing_iterations, saving
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
-                torch.save((gaussians.capture(), iteration), scene._model_path + "/chkpnt" + str(iteration) + ".pth")
+                torch.save((gaussians.capture(), iteration), scene._model_path + "/chkpnt" + str(iteration) + ".pth")           
 
     if opt.save_process:
         imageio.mimwrite(os.path.join(save_folder_proc, "video_rgb.mp4"), pro_img_frames, fps=30, quality=8)

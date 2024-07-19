@@ -59,19 +59,20 @@ def ddim_add_noise(
     return noisy_samples
 
 # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler.step
+# prev_sample 实际上返回的是预测的 x_{t - delta_timestep}
 def ddim_step(
     self,
-    model_output: torch.FloatTensor,
-    timestep: int,
-    sample: torch.FloatTensor,
-    delta_timestep: int = None,
+    model_output: torch.FloatTensor,  # unet_output: 输入 x_{cur_t} 后预测的噪声
+    timestep: int,  # cur_t: timesteps[cur_ind_t]
+    sample: torch.FloatTensor,  # cur_noisy_lat: 加噪得到的 x_{cur_t}
+    delta_timestep: int = None,  # -delta_t_: next_t - cur_t
     eta: float = 0.0,
     use_clipped_model_output: bool = False,
     generator=None,
     variance_noise: Optional[torch.FloatTensor] = None,
     return_dict: bool = True,
     **kwargs
-) -> Union[DDIMSchedulerOutput, Tuple]:
+) -> Union[DDIMSchedulerOutput, Tuple]:  # prev_sample: 返回由 DDIM 采样公式预测的 x_{t-1}
     """
     Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
     process from the learned model outputs (most often the predicted noise).
@@ -125,7 +126,7 @@ def ddim_step(
         # 1. get previous step value (=t+1)
         prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps
     else:
-        prev_timestep = timestep - delta_timestep
+        prev_timestep = timestep - delta_timestep  # delta_timestep < 0，prev_timestep 实际上等于 next_t
 
     # 2. compute alphas, betas
     alpha_prod_t = self.alphas_cumprod[timestep]
@@ -167,7 +168,7 @@ def ddim_step(
     variance = abs(self._get_variance(timestep, prev_timestep))
 
     std_dev_t = eta * variance
-    std_dev_t = min((1 - alpha_prod_t_prev) / 2, std_dev_t) ** 0.5
+    std_dev_t = min((1 - alpha_prod_t_prev) / 2, std_dev_t) ** 0.5  # 0: 对应确定性采样
 
     if use_clipped_model_output:
         # the pred_epsilon is always re-derived from the clipped x_0 in Glide
@@ -176,7 +177,7 @@ def ddim_step(
     # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
     pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * pred_epsilon
 
-    # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
+    # 7. compute x_{t-1} without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
     prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
 
     if eta > 0:

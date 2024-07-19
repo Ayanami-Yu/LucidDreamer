@@ -10,12 +10,14 @@ ModelParams:
   bg_aug_ratio: 0.66
 
 GuidanceParams:
-  model_key: 'stabilityai/stable-diffusion-2-1-base'
+  # model_key: 'stabilityai/stable-diffusion-2-1-base'
+  model_key: '/home/hongyu/LucidDreamer/models/stable-diffusion-2-1-base'
   text: 'Zombie JOKER, head, photorealistic, 8K, HDR.'
   negative: 'unrealistic, blurry, low quality, out of focus, ugly, low contrast, dull, dark, low-resolution, oversaturation.'
   inverse_text: ''
   perpneg: true
-  C_batch_size: 4
+  # C_batch_size: 4
+  C_bath_size: 2
 
   t_range: [0.02, 0.5]
   max_t_range: 0.98

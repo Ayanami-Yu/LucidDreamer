@@ -74,6 +74,9 @@ def tv_loss(x):
     w_x = x.size()[3]
     count_h = _tensor_size(x[:,:,1:,:])  
     count_w = _tensor_size(x[:,:,:,1:])
+
+    # Total variation in height/width direction:
+    # Sum of squared differences between adjacent pixel values. 
     h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()  
     w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
     return 2*(h_tv/count_h+w_tv/count_w)/batch_size    
