@@ -4,6 +4,7 @@ output
 build
 output/
 point_e_model_cache/
+nohup.out
 models/
 tmp/
 data
