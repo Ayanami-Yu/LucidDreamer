@@ -4,3 +4,6 @@ output
 build
 output/
 point_e_model_cache/
+models/
+tmp/
+data
