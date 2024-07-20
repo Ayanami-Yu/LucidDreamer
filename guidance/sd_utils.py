@@ -265,6 +265,8 @@ class StableDiffusion(nn.Module):
         text_embeddings = text_embeddings.reshape(
             -1, text_embeddings.shape[-2], text_embeddings.shape[-1]) # make it k+1, c * t, ...
 
+        # 先用大的 delta_t 来 supervise overall structure
+        # 再逐渐减小 delta_t 以获得细节
         if guidance_opt.annealing_intervals:
             current_delta_t =  int(guidance_opt.delta_t + np.ceil((
                 warm_up_rate) * (guidance_opt.delta_t_start - guidance_opt.delta_t)))

@@ -3,49 +3,50 @@ save_video: true
 seed: 0
 
 PipelineParams:
-  convert_SHs_python: False  # true = using direct rgb
+  convert_SHs_python: False
 ModelParams:
-  workspace: lego_castle
+  workspace: saber_sword
   sh_degree: 0
   bg_aug_ratio: 0.66
 
 GuidanceParams:
   model_key: '/home/hongyu/LucidDreamer/models/stable-diffusion-2-1-base'
-  text: 'A Lego castle.'
+  text: 'Saber from Fate Stay Night holding a sword, 3D, girl, anime.' 
   negative: 'unrealistic, blurry, low quality, out of focus, ugly, low contrast, dull, dark, low-resolution, oversaturation.'
   inverse_text: ''
   perpneg: true
   C_batch_size: 2
-  t_range: [0.02, 0.5]  # 决定随机选择 t 的范围
+  t_range: [0.02, 0.5]
   max_t_range: 0.98
   lambda_guidance: 0.1
   guidance_scale: 7.5
   denoise_guidance_scale: 1.0
+  
   noise_seed: 0
 
   ddim_inv: true
-  annealing_intervals: false  # 缺省 true
+  annealing_intervals: true
 
-  xs_delta_t: 25  # DDIM 加噪到 x_s 的步长，对应 delta_s
-  # xs_inv_steps: 5
+  xs_delta_t: 200
+  xs_inv_steps: 5
   xs_eta: 0.0
   
-  delta_t: 50  # s = t - delta_t
-  # delta_t_start: 100
+  delta_t: 80
+  delta_t_start: 100
 
 GenerateCamParams:
   init_shape: 'pointe'
-  init_prompt: 'A Lego castle.'  
+  init_prompt: 'Saber from Fate Stay Night holding a sword, 3D, girl, anime.' 
   use_pointe_rgb: false
   init_num_pts: 100_000
-  phi_range: [-180, 180]
+  phi_range: [-80, 80]
   max_phi_range: [-180, 180]
-  rand_cam_gamma: 1.
+  rand_cam_gamma: 1.5
 
-  theta_range: [45, 105]
-  max_theta_range: [45, 105]
+  theta_range: [60, 120]
+  max_theta_range: [60, 120]
 
-  radius_range: [5.2, 5.5] 
+  radius_range: [5.2, 5.5]
   max_radius_range: [3.5, 5.0]
   default_radius: 3.5
  
@@ -58,7 +59,7 @@ OptimizationParams:
   save_process: True
   pro_frames_num: 600
   pro_render_45: False
-  warmup_iter: 1500 # 2500
+  warmup_iter: 1500
 
   as_latent_ratio : 0.2
   geo_iter : 0

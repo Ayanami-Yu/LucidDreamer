@@ -23,6 +23,8 @@ addr = None
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+# wish_host: 127.0.0.1
+# wish_port: yaml 文件中的 port
 def init(wish_host, wish_port):
     global host, port, listener
     host = wish_host

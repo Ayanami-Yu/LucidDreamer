@@ -5,20 +5,21 @@ seed: 0
 PipelineParams:
   convert_SHs_python: False #true = using direct rgb
 ModelParams:
-  workspace: hamburger
+  workspace: hamburger_on_plate
   sh_degree: 0
   bg_aug_ratio: 0.66
 
 GuidanceParams:
   # model_key: 'stabilityai/stable-diffusion-2-1-base'
   model_key: '/home/hongyu/LucidDreamer/models/stable-diffusion-2-1-base'
-  text: 'A delicious hamburger.'
+  # text: 'A delicious hamburger.'
+  text: 'A delicious hamburger on a patterned plate.'
   negative: 'unrealistic, blurry, low quality, out of focus, ugly, low contrast, dull, dark, low-resolution, oversaturation.'
   inverse_text: ''
   # perpneg: false
   perpneg: true
   # C_batch_size: 4
-  C_batch_size: 1
+  C_batch_size: 2
   t_range: [0.02, 0.5]
   max_t_range: 0.98
   lambda_guidance: 0.1
