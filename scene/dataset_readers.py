@@ -238,6 +238,7 @@ def circle_poses(radius=torch.tensor([3.2]), theta=torch.tensor([60]), phi=torch
 
     return poses.numpy()
 
+# param_range: opts.theta_range
 def gen_random_pos(size, param_range, gamma=1):
     lower, higher = param_range[0], param_range[1]
     
