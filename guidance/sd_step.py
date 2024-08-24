@@ -1,7 +1,15 @@
 from transformers import CLIPTextModel, CLIPTokenizer, logging
-from diffusers import StableDiffusionPipeline, DiffusionPipeline, DDPMScheduler, DDIMScheduler, EulerDiscreteScheduler, \
-                      EulerAncestralDiscreteScheduler, DPMSolverMultistepScheduler, ControlNetModel, \
-                      DDIMInverseScheduler
+from diffusers import (
+    StableDiffusionPipeline,
+    DiffusionPipeline,
+    DDPMScheduler,
+    DDIMScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+    ControlNetModel,
+    DDIMInverseScheduler,
+)
 from diffusers.utils import BaseOutput, deprecate
 
 import numpy as np
@@ -34,6 +42,7 @@ class DDIMSchedulerOutput(BaseOutput):
     prev_sample: torch.FloatTensor
     pred_original_sample: Optional[torch.FloatTensor] = None
 
+
 # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler.add_noise
 def ddim_add_noise(
     self,
@@ -42,7 +51,9 @@ def ddim_add_noise(
     timesteps: torch.IntTensor,
 ) -> torch.FloatTensor:
     # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
-    alphas_cumprod = self.alphas_cumprod.to(device=original_samples.device, dtype=original_samples.dtype)
+    alphas_cumprod = self.alphas_cumprod.to(
+        device=original_samples.device, dtype=original_samples.dtype
+    )
     timesteps = timesteps.to(original_samples.device)
 
     sqrt_alpha_prod = alphas_cumprod[timesteps] ** 0.5
@@ -55,8 +66,11 @@ def ddim_add_noise(
     while len(sqrt_one_minus_alpha_prod.shape) < len(original_samples.shape):
         sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
 
-    noisy_samples = sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise
+    noisy_samples = (
+        sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise
+    )
     return noisy_samples
+
 
 # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler.step
 # prev_sample 实际上返回的是预测的 x_{t - delta_timestep}
@@ -71,8 +85,10 @@ def ddim_step(
     generator=None,
     variance_noise: Optional[torch.FloatTensor] = None,
     return_dict: bool = True,
-    **kwargs
-) -> Union[DDIMSchedulerOutput, Tuple]:  # prev_sample: 返回由 DDIM 采样公式预测的 x_{t-1}
+    **kwargs,
+) -> Union[
+    DDIMSchedulerOutput, Tuple
+]:  # prev_sample: 返回由 DDIM 采样公式预测的 x_{t-1}
     """
     Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
     process from the learned model outputs (most often the predicted noise).
@@ -121,29 +137,42 @@ def ddim_step(
     # - pred_sample_direction -> "direction pointing to x_t"
     # - pred_prev_sample -> "x_t-1"
 
-
     if delta_timestep is None:
         # 1. get previous step value (=t+1)
-        prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        prev_timestep = (
+            timestep - self.config.num_train_timesteps // self.num_inference_steps
+        )
     else:
-        prev_timestep = timestep - delta_timestep  # delta_timestep < 0，prev_timestep 实际上等于 next_t
+        prev_timestep = (
+            timestep - delta_timestep
+        )  # delta_timestep < 0，prev_timestep 实际上等于 next_t
 
     # 2. compute alphas, betas
     alpha_prod_t = self.alphas_cumprod[timestep]
-    alpha_prod_t_prev = self.alphas_cumprod[prev_timestep] if prev_timestep >= 0 else self.final_alpha_cumprod
+    alpha_prod_t_prev = (
+        self.alphas_cumprod[prev_timestep]
+        if prev_timestep >= 0
+        else self.final_alpha_cumprod
+    )
 
     beta_prod_t = 1 - alpha_prod_t
 
     # 3. compute predicted original sample from predicted noise also called
     # "predicted x_0" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
     if self.config.prediction_type == "epsilon":
-        pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
+        pred_original_sample = (
+            sample - beta_prod_t ** (0.5) * model_output
+        ) / alpha_prod_t ** (0.5)
         pred_epsilon = model_output
     elif self.config.prediction_type == "sample":
         pred_original_sample = model_output
-        pred_epsilon = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
+        pred_epsilon = (
+            sample - alpha_prod_t ** (0.5) * pred_original_sample
+        ) / beta_prod_t ** (0.5)
     elif self.config.prediction_type == "v_prediction":
-        pred_original_sample = (alpha_prod_t**0.5) * sample - (beta_prod_t**0.5) * model_output
+        pred_original_sample = (alpha_prod_t**0.5) * sample - (
+            beta_prod_t**0.5
+        ) * model_output
         pred_epsilon = (alpha_prod_t**0.5) * model_output + (beta_prod_t**0.5) * sample
     else:
         raise ValueError(
@@ -172,13 +201,19 @@ def ddim_step(
 
     if use_clipped_model_output:
         # the pred_epsilon is always re-derived from the clipped x_0 in Glide
-        pred_epsilon = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
+        pred_epsilon = (
+            sample - alpha_prod_t ** (0.5) * pred_original_sample
+        ) / beta_prod_t ** (0.5)
 
     # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
-    pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * pred_epsilon
+    pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (
+        0.5
+    ) * pred_epsilon
 
     # 7. compute x_{t-1} without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
-    prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
+    prev_sample = (
+        alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
+    )
 
     if eta > 0:
         if variance_noise is not None and generator is not None:
@@ -189,18 +224,24 @@ def ddim_step(
 
         if variance_noise is None:
             variance_noise = randn_tensor(
-                model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
+                model_output.shape,
+                generator=generator,
+                device=model_output.device,
+                dtype=model_output.dtype,
             )
         variance = std_dev_t * variance_noise
 
         prev_sample = prev_sample + variance
-    
+
     prev_sample = torch.nan_to_num(prev_sample)
 
     if not return_dict:
         return (prev_sample,)
 
-    return DDIMSchedulerOutput(prev_sample=prev_sample, pred_original_sample=pred_original_sample)
+    return DDIMSchedulerOutput(
+        prev_sample=prev_sample, pred_original_sample=pred_original_sample
+    )
+
 
 def pred_original(
     self,
@@ -210,7 +251,9 @@ def pred_original(
 ):
     if isinstance(self, DDPMScheduler) or isinstance(self, DDIMScheduler):
         # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
-        alphas_cumprod = self.alphas_cumprod.to(device=sample.device, dtype=sample.dtype)
+        alphas_cumprod = self.alphas_cumprod.to(
+            device=sample.device, dtype=sample.dtype
+        )
         timesteps = timesteps.to(sample.device)
 
         # 1. compute alphas, betas
@@ -223,11 +266,15 @@ def pred_original(
         # 2. compute predicted original sample from predicted noise also called
         # "predicted x_0" of formula (15) from https://arxiv.org/pdf/2006.11239.pdf
         if self.config.prediction_type == "epsilon":
-            pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
+            pred_original_sample = (
+                sample - beta_prod_t ** (0.5) * model_output
+            ) / alpha_prod_t ** (0.5)
         elif self.config.prediction_type == "sample":
             pred_original_sample = model_output
         elif self.config.prediction_type == "v_prediction":
-            pred_original_sample = (alpha_prod_t**0.5) * sample - (beta_prod_t**0.5) * model_output
+            pred_original_sample = (alpha_prod_t**0.5) * sample - (
+                beta_prod_t**0.5
+            ) * model_output
         else:
             raise ValueError(
                 f"prediction_type given as {self.config.prediction_type} must be one of `epsilon`, `sample` or"
@@ -241,7 +288,9 @@ def pred_original(
             pred_original_sample = pred_original_sample.clamp(
                 -self.config.clip_sample_range, self.config.clip_sample_range
             )
-    elif isinstance(self, EulerAncestralDiscreteScheduler) or isinstance(self, EulerDiscreteScheduler):
+    elif isinstance(self, EulerAncestralDiscreteScheduler) or isinstance(
+        self, EulerDiscreteScheduler
+    ):
         timestep = timesteps.to(self.timesteps.device)
 
         step_index = (self.timesteps == timestep).nonzero().item()
@@ -252,7 +301,9 @@ def pred_original(
             pred_original_sample = sample - sigma * model_output
         elif self.config.prediction_type == "v_prediction":
             # * c_out + input * c_skip
-            pred_original_sample = model_output * (-sigma / (sigma**2 + 1) ** 0.5) + (sample / (sigma**2 + 1))
+            pred_original_sample = model_output * (-sigma / (sigma**2 + 1) ** 0.5) + (
+                sample / (sigma**2 + 1)
+            )
         elif self.config.prediction_type == "sample":
             raise NotImplementedError("prediction_type not implemented yet: sample")
         else:

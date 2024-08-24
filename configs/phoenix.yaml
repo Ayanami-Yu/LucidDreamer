@@ -5,18 +5,16 @@ seed: 0
 PipelineParams:
   convert_SHs_python: False
 ModelParams:
-  # workspace: phoenix_volcano
   workspace: phoenix
   sh_degree: 0
   bg_aug_ratio: 0.66
 
 GuidanceParams:
   model_key: '/home/hongyu/LucidDreamer/models/stable-diffusion-2-1-base'
-  text: 'A giant phoenix spitting flames and flying above a volcano. Fantasy, blender, 8K.'
+  text: 'A giant phoenix spitting flames. Fantasy, blender, 8K.'
   negative: 'unrealistic, blurry, low quality, out of focus, ugly, low contrast, dull, low-resolution, oversaturation.'
   inverse_text: ''
   perpneg: true
-  # C_batch_size: 2
   C_batch_size: 4
 
   t_range: [0.02, 0.5]

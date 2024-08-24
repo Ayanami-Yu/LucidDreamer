@@ -474,9 +474,9 @@ def train_inversion(
                             .norm(dim=-1)
                         )
 
-                        text_encoder.get_input_embeddings().weight[
-                            index_no_updates
-                        ] = orig_embeds_params[index_no_updates]
+                        text_encoder.get_input_embeddings().weight[index_no_updates] = (
+                            orig_embeds_params[index_no_updates]
+                        )
 
                         print(f"Current Norm : {current_norm}")
 
@@ -965,9 +965,11 @@ def train(
         params_to_optimize += [
             {
                 "params": text_encoder.get_input_embeddings().parameters(),
-                "lr": continue_inversion_lr
-                if continue_inversion_lr is not None
-                else ti_lr,
+                "lr": (
+                    continue_inversion_lr
+                    if continue_inversion_lr is not None
+                    else ti_lr
+                ),
             }
         ]
         text_encoder.requires_grad_(True)
