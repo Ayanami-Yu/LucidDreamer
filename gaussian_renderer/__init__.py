@@ -184,11 +184,11 @@ def render(
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {
-        "render": rendered_image,
-        "depth": disp,
+        "render": rendered_image,  # (3, 512, 512)
+        "depth": disp,  # (1, 512, 512)
         "alpha": alpha,
-        "viewspace_points": screenspace_points,
-        "visibility_filter": radii > 0,
-        "radii": radii,
-        "scales": scales,
+        "viewspace_points": screenspace_points,  # (P, 3)
+        "visibility_filter": radii > 0,  # (P,)
+        "radii": radii,  # (P,)
+        "scales": scales,  # (P, 3)
     }

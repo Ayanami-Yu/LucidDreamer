@@ -266,6 +266,7 @@ def circle_poses(
     )  # [B, 3]
 
     # lookat
+    # NOTE maybe the opposite of lookat (backward actually)
     forward_vector = safe_normalize(centers)
     up_vector = torch.FloatTensor([0, 0, 1]).unsqueeze(0).repeat(len(centers), 1)
     right_vector = safe_normalize(torch.cross(forward_vector, up_vector, dim=-1))
@@ -273,7 +274,7 @@ def circle_poses(
 
     poses = torch.eye(4, dtype=torch.float).unsqueeze(0).repeat(len(centers), 1, 1)
     poses[:, :3, :3] = torch.stack((-right_vector, up_vector, forward_vector), dim=-1)
-    poses[:, :3, 3] = centers
+    poses[:, :3, 3] = centers  # camera centers
 
     return poses.numpy()
 
@@ -420,10 +421,18 @@ def GenerateCircleCameras(opt, size=8, render45=False):
             angle_overhead=opt.angle_overhead,
             angle_front=opt.angle_front,
         )
+        # camera to world
+        # rotate x-axis (of world) to the opposite of right (of camera)
+        # y to up, z to backward
         matrix = np.linalg.inv(poses[0])
+
+        # world to camera
+        # right to x, down to y, forward to z
         R = -np.transpose(matrix[:3, :3])
+
+        # left to x
         R[:, 0] = -R[:, 0]
-        T = -matrix[:3, 3]
+        T = -matrix[:3, 3]  # opposite of camera center
         fovy = focal2fov(fov2focal(fov, opt.image_h), opt.image_w)
         FovY = fovy
         FovX = fov
@@ -490,6 +499,7 @@ def GenerateCircleCameras(opt, size=8, render45=False):
     return cam_infos
 
 
+# Generate cam_infos
 def GenerateRandomCameras(opt, size=2000, SSAA=True):
     # random pose on the fly
     poses, thetas, phis, radius = rand_poses(
@@ -523,7 +533,7 @@ def GenerateRandomCameras(opt, size=2000, SSAA=True):
 
     # generate specific data structure
     for idx in range(size):
-        matrix = np.linalg.inv(poses[idx])
+        matrix = np.linalg.inv(poses[idx])  # w2c
         R = -np.transpose(matrix[:3, :3])
         R[:, 0] = -R[:, 0]
         T = -matrix[:3, 3]

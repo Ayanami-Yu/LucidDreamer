@@ -32,6 +32,7 @@ class Scene:
 
     gaussians: GaussianModel
 
+    # NOTE creating and loading point cloud are done here
     def __init__(
         self,
         args: ModelParams,
@@ -59,7 +60,7 @@ class Scene:
             else:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
-
+        # NOTE original generation of R, T
         self.test_cameras = {}
         scene_info = sceneLoadTypeCallbacks["RandomCam"](self.model_path, pose_args)
 

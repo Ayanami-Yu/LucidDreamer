@@ -168,15 +168,15 @@ class RCamera(nn.Module):
         self.scale = scale
 
         RT = torch.tensor(getWorld2View2(R, T, trans, scale))
-        self.world_view_transform = RT.transpose(0, 1).cuda()
+        self.world_view_transform = RT.transpose(0, 1).cuda()  # NOTE transpose
         self.projection_matrix = (
             getProjectionMatrix(
                 znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy
             )
-            .transpose(0, 1)
+            .transpose(0, 1)  # NOTE transpose of perspective projection
             .cuda()
         )
-        self.full_proj_transform = (
+        self.full_proj_transform = (  # NOTE probably right-multiply points
             self.world_view_transform.unsqueeze(0).bmm(
                 self.projection_matrix.unsqueeze(0)
             )

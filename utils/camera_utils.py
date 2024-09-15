@@ -94,7 +94,7 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args):
 def cameraList_from_RcamInfos(cam_infos, resolution_scale, opt, SSAA=False):
     camera_list = []
 
-    for id, c in enumerate(cam_infos):
+    for id, c in enumerate(cam_infos):  # c for cam_info
         camera_list.append(loadRandomCam(opt, id, c, resolution_scale, SSAA=SSAA))
 
     return camera_list

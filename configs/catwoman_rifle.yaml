@@ -36,7 +36,7 @@ GuidanceParams:
 
 GenerateCamParams:
   init_shape: 'pointe'
-  init_prompt: 'A girl holding a rifle.'
+  init_prompt: 'A girl'
   use_pointe_rgb: false
   init_num_pts: 100_000
   phi_range: [-80, 80]

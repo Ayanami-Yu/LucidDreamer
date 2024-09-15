@@ -251,6 +251,7 @@ def training(
         gaussians.update_rotation_learning_rate(iteration)
         gaussians.update_scaling_learning_rate(iteration)
         # Every 500 its we increase the levels of SH up to a maximum degree
+        # TODO always zero or not
         if iteration % 500 == 0:
             gaussians.oneupSHdegree()
 
@@ -482,7 +483,7 @@ def training(
                 if save_video:
                     video_inference(iteration, scene, render, (pipe, background))
 
-            if iteration in saving_iterations:
+            if iteration in saving_iterations:  # [2500, 5000]
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
